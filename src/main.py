@@ -7,9 +7,9 @@ from playwright.sync_api import sync_playwright
 
 from .config import Config
 from .crawler import crawl_index, crawl_detail
-from .models import Movie
 from .stats import CrawlStats
 from .storage import JsonlStorage
+from .observer import register_api_observer
 
 
 def positive_int(value: str) -> int:
@@ -34,13 +34,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--headed", action="store_true",
         help="run the browser in headed mode"
     )
+    parser.add_argument(
+        "--observe-api", action="store_true",
+        help="print movie API response metadata"
+    )
     return parser
 
 
 def parse_config(argv: Optional[Sequence[str]] = None) -> Config:
     args = build_parser().parse_args(argv)
 
-    return Config(pages=args.pages, headless=not args.headed)
+    return Config(
+        pages=args.pages, headless=not args.headed, observe_api=args.observe_api
+    )
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
@@ -48,7 +54,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     storage = JsonlStorage(config.output_path)
     stats = CrawlStats()
     discovered_urls: set[str] = set()
-    movies: list[Movie] = []
 
     try:
         with sync_playwright() as playwright:
@@ -59,6 +64,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 context = browser.new_context()
                 context.set_default_timeout(timeout=config.timeout_ms)
                 page = context.new_page()
+
+                if config.observe_api:
+                    register_api_observer(page)
 
                 for page_number in range(1, config.pages + 1):
                     detail_urls = crawl_index(
