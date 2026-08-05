@@ -1,6 +1,7 @@
 import argparse
 import json
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Optional
 
 from playwright.sync_api import sync_playwright
@@ -38,6 +39,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--observe-api", action="store_true",
         help="print movie API response metadata"
     )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("outputs/movies.jsonl"),
+        help="JSONL output path",
+    )
     return parser
 
 
@@ -45,7 +52,10 @@ def parse_config(argv: Optional[Sequence[str]] = None) -> Config:
     args = build_parser().parse_args(argv)
 
     return Config(
-        pages=args.pages, headless=not args.headed, observe_api=args.observe_api
+        pages=args.pages,
+        headless=not args.headed,
+        observe_api=args.observe_api,
+        output_path=args.output,
     )
 
 

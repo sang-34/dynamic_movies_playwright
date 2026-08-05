@@ -12,9 +12,3 @@ class Config:
     output_path: Path = Path("outputs/movies.jsonl")
     screenshot_dir: Path = Path("screenshots")
     observe_api: bool = False
-
-
-
-
-
-

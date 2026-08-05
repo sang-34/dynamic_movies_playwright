@@ -39,25 +39,3 @@ class CrawlStats:
             "started_at": self.started_at.isoformat(),
             "elapsed_seconds": self.elapsed_seconds,
         }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

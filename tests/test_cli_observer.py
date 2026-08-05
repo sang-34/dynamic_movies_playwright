@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -26,6 +27,17 @@ def test_cli_pages_default_modes():
     assert config.pages == 3
     assert config.headless is True
     assert config.observe_api is False
+    assert config.output_path == Path("outputs/movies.jsonl")
+
+
+def test_cli_custom_output_path():
+    config = parse_config(
+        ["--output", "outputs/test.jsonl"]
+    )
+
+    assert config.output_path == Path(
+        "outputs/test.jsonl"
+    )
 
 
 def test_cli_headed_and_observe_api():
