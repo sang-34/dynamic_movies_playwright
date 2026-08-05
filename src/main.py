@@ -1,4 +1,5 @@
 import argparse
+import json
 from collections.abc import Sequence
 from typing import Optional
 
@@ -7,6 +8,8 @@ from playwright.sync_api import sync_playwright
 from .config import Config
 from .crawler import crawl_index, crawl_detail
 from .models import Movie
+from .stats import CrawlStats
+from .storage import JsonlStorage
 
 
 def positive_int(value: str) -> int:
@@ -42,35 +45,68 @@ def parse_config(argv: Optional[Sequence[str]] = None) -> Config:
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     config = parse_config(argv)
+    storage = JsonlStorage(config.output_path)
+    stats = CrawlStats()
+    discovered_urls: set[str] = set()
     movies: list[Movie] = []
 
-    with sync_playwright() as playwright:
-        browser = None
+    try:
+        with sync_playwright() as playwright:
+            browser = None
 
-        try:
-            browser = playwright.chromium.launch(headless=config.headless)
-            context = browser.new_context()
-            context.set_default_timeout(timeout=config.timeout_ms)
-            page = context.new_page()
+            try:
+                browser = playwright.chromium.launch(headless=config.headless)
+                context = browser.new_context()
+                context.set_default_timeout(timeout=config.timeout_ms)
+                page = context.new_page()
 
-            detail_urls = crawl_index(page, 1, config)
-            print(f"发现 {len(detail_urls)} 个唯一详情 URL")
+                for page_number in range(1, config.pages + 1):
+                    detail_urls = crawl_index(
+                        page, page_number, config, on_retry=stats.record_retry
+                    )
 
-            for url in detail_urls:
-                try:
-                    movie = crawl_detail(page, url, config)
-                    if movie is None:
+                    if detail_urls is None:
+                        print(f"第 {page_number} 页处理失败")
                         continue
 
-                    movies.append(movie)
-                    print(movie.to_dict())
-                except Exception as exc:
-                    print(f"跳过详情页: {url}, 错误: {exc}")
-        finally:
-            if browser is not None:
-                browser.close()
+                    stats.page_completed += 1
+                    discovered_urls.update(detail_urls)
+                    stats.url_discovered = len(discovered_urls)
 
-    print(f"合法 Movie 对象数量：{len(movies)}")
+                    print(f"第 {page_number} 页发现 {len(discovered_urls)} 个唯一详情 URL")
+
+                    for url in detail_urls:
+                        if storage.contains(url):
+                            stats.skipped += 1
+                            continue
+
+                        try:
+                            movie = crawl_detail(
+                                page, url, config, on_retry=stats.record_retry
+                            )
+
+                            if movie is None:
+                                stats.failed += 1
+                                continue
+
+                            if storage.append(movie):
+                                stats.success += 1
+                                print(movie.to_dict())
+                            else:
+                                stats.skipped += 1
+                        except Exception as exc:
+                            stats.failed += 1
+                            print(f"采集详情异常: {url}, 错误: {exc}")
+            finally:
+                if browser is not None:
+                    browser.close()
+    finally:
+        stats.finish()
+
+        print("\n采集汇总")
+        print(json.dumps(stats.to_dict(), ensure_ascii=False, indent=4))
+        print(f"输出文件唯一 URL 总数: {storage.url_count}")
+
 
 if __name__ == "__main__":
     main()

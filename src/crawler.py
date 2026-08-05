@@ -2,6 +2,7 @@ import re
 import time
 from datetime import datetime
 from urllib.parse import urlsplit, urljoin
+from collections.abc import Callable
 
 from playwright.sync_api import (
     Error as PlaywrightError,
@@ -13,6 +14,8 @@ from .config import Config
 from .models import Movie
 
 _RETRY_DELAYS = (1, 2)
+
+RetryHook = Callable[[], None] | None
 
 
 def _save_failure_screenshot(page: Page, url: str, config: Config) -> None:
@@ -31,7 +34,9 @@ def _save_failure_screenshot(page: Page, url: str, config: Config) -> None:
         print(f"保存失败截图时出错: {exc}")
 
 
-def open_page(page: Page, url: str, config: Config)  -> bool:
+def open_page(
+    page: Page, url: str, config: Config, on_retry: RetryHook = None
+)  -> bool:
     attempts = max(config.retries, 1)
 
     for attempt in range(1, attempts + 1):
@@ -45,6 +50,9 @@ def open_page(page: Page, url: str, config: Config)  -> bool:
             _save_failure_screenshot(page, url, config)
             return False
 
+        if on_retry is not None:
+            on_retry()
+
         delay = _RETRY_DELAYS[min(attempt - 1, len(_RETRY_DELAYS) - 1)]
         print(f"{delay} 秒后重试")
         time.sleep(delay)
@@ -52,11 +60,13 @@ def open_page(page: Page, url: str, config: Config)  -> bool:
     return False
 
 
-def crawl_index(page: Page, page_number: int, config: Config) -> list[str]:
+def crawl_index(
+    page: Page, page_number: int, config: Config, on_retry: RetryHook = None
+) -> list[str] | None:
     index_url = config.base_url.format(page=page_number)
 
-    if not open_page(page, index_url, config):
-        return []
+    if not open_page(page, index_url, config, on_retry):
+        return None
 
     try:
         page.locator("#index .item").first.wait_for(
@@ -73,11 +83,13 @@ def crawl_index(page: Page, page_number: int, config: Config) -> list[str]:
     except (PlaywrightTimeoutError, PlaywrightError) as exc:
         print(f"提取列表页失败: {index_url}, 错误: {exc}")
         _save_failure_screenshot(page, index_url, config)
-        return []
+        return None
 
 
-def crawl_detail(page: Page, url: str, config: Config) -> Movie | None:
-    if not open_page(page, url, config):
+def crawl_detail(
+    page: Page, url: str, config: Config, on_retry: RetryHook = None
+) -> Movie | None:
+    if not open_page(page, url, config, on_retry):
         return None
 
     try:
